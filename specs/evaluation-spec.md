@@ -44,8 +44,10 @@ Returns the fraction of predictions that exactly match the ground truth.
 **Formula:**
 
 ```
-[blank — write out the accuracy formula in plain English.
- What counts as "correct"? What do you divide by?]
+accuracy = number of correct predictions / total number of predictions
+
+A prediction is "correct" when predictions[i] exactly matches ground_truth[i]
+(same string, same position). Divide by the total number of episodes (len(ground_truth)).
 ```
 
 ---
@@ -53,10 +55,10 @@ Returns the fraction of predictions that exactly match the ground truth.
 **Step-by-step logic:**
 
 ```
-[blank — describe the steps your code will take.
- 1. ...
- 2. ...
- 3. ...]
+1. If ground_truth is empty, return 0.0 (avoid division by zero).
+2. Use zip(predictions, ground_truth) to pair each prediction with its ground truth.
+3. Count the pairs where predicted == truth (sum of a boolean comparison).
+4. Divide that count by len(ground_truth) and return the float.
 ```
 
 ---
@@ -64,7 +66,8 @@ Returns the fraction of predictions that exactly match the ground truth.
 **Edge case — what if both lists are empty?**
 
 ```
-[blank — what should the function return? Why?]
+Return 0.0. There are no predictions to evaluate, so accuracy is undefined —
+0.0 is the safest default and avoids a ZeroDivisionError.
 ```
 
 ---
@@ -75,7 +78,13 @@ Returns the fraction of predictions that exactly match the ground truth.
 predictions  = ["interview", "solo", "panel", "interview"]
 ground_truth = ["interview", "solo", "solo",  "narrative"]
 
-[blank — what does compute_accuracy() return for these inputs? Show your work.]
+Index 0: interview == interview  ✓
+Index 1: solo      == solo       ✓
+Index 2: panel     != solo       ✗
+Index 3: interview != narrative  ✗
+
+correct = 2, total = 4
+compute_accuracy() returns 2 / 4 = 0.5
 ```
 
 ---
@@ -113,8 +122,13 @@ A `dict` keyed by label. Each value is a dict with three keys:
 **What does "correct" mean for a given class?**
 
 ```
-[blank — be precise. When does an episode count as correctly classified
- for the "interview" class, for example?]
+An episode counts as correctly classified for a class when BOTH conditions hold:
+  1. ground_truth[i] == that class  (the episode actually belongs to this class)
+  2. predictions[i]  == that class  (the classifier also predicted this class)
+
+For "interview": the ground truth IS interview AND the prediction IS interview.
+Episodes where the ground truth is a different label are not counted for this class
+at all — even if the prediction happens to be "interview".
 ```
 
 ---
@@ -122,7 +136,11 @@ A `dict` keyed by label. Each value is a dict with three keys:
 **What does "total" mean for a given class?**
 
 ```
-[blank — is "total" the total number of predictions, or something more specific?]
+"total" is the number of episodes whose GROUND TRUTH label is this class —
+regardless of what the classifier predicted. It is NOT the total number of
+predictions overall.
+
+For "interview": count of episodes where ground_truth[i] == "interview".
 ```
 
 ---
@@ -130,12 +148,14 @@ A `dict` keyed by label. Each value is a dict with three keys:
 **Step-by-step logic:**
 
 ```
-[blank — describe the steps your code will take.
- 1. Initialize ...
- 2. Loop over ...
- 3. For each pair (predicted, truth) ...
- 4. After the loop ...
- 5. Return ...]
+1. Initialize a stats dict: for each label in VALID_LABELS set correct=0, total=0.
+2. Loop over zip(predictions, ground_truth) to get each (predicted, truth) pair.
+3. For each pair:
+     - Increment stats[truth]["total"] by 1  (this episode belongs to class truth)
+     - If predicted == truth, also increment stats[truth]["correct"] by 1
+4. After the loop, compute accuracy for each label:
+     accuracy = correct / total  if total > 0  else 0.0
+5. Return the completed stats dict.
 ```
 
 ---
@@ -143,8 +163,10 @@ A `dict` keyed by label. Each value is a dict with three keys:
 **Edge case — what if a class has no examples in ground_truth (total == 0)?**
 
 ```
-[blank — what should accuracy be set to? Why?
- Hint: look at the docstring in evaluate.py.]
+Set accuracy to 0.0. Dividing by zero is undefined, and 0.0 is the value
+specified in the evaluate.py docstring stub. In this lab the test set has
+5 episodes per class so total==0 shouldn't occur, but the code must handle
+it safely regardless.
 ```
 
 ---
@@ -155,14 +177,19 @@ A `dict` keyed by label. Each value is a dict with three keys:
 predictions  = ["interview", "interview", "solo", "panel", "panel"]
 ground_truth = ["interview", "solo",      "solo", "panel", "narrative"]
 
-[blank — fill in the per-class results table below]
+Pair-by-pair:
+  (interview, interview) → interview total=1, correct=1
+  (interview, solo)      → solo      total=1, correct=0  (predicted wrong)
+  (solo,      solo)      → solo      total=2, correct=1
+  (panel,     panel)     → panel     total=1, correct=1
+  (panel,     narrative) → narrative total=1, correct=0  (predicted wrong)
 
 label       correct  total  accuracy
 ----------  -------  -----  --------
-interview   [blank]  [blank]  [blank]
-solo        [blank]  [blank]  [blank]
-panel       [blank]  [blank]  [blank]
-narrative   [blank]  [blank]  [blank]
+interview      1       1      1.0
+solo           1       2      0.5
+panel          1       1      1.0
+narrative      0       1      0.0
 ```
 
 ---

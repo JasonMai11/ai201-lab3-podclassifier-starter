@@ -91,10 +91,19 @@ the format below:" followed by the output format you chose.
 **What output format should you request from the LLM?**
 
 ```
-[blank — you need to parse the response in classify_episode(). What format
-makes parsing reliable? Think about: a single label on its own line?
-A structured format like "Label: X / Reasoning: Y"? JSON?
-What are the tradeoffs?]
+Request this exact format:
+
+Respond using EXACTLY this format:
+Label: <one of: interview, solo, panel, narrative>
+Reasoning: <one or two sentences explaining your choice>
+
+Tradeoffs:
+- JSON is more structured but models often wrap it in markdown fences, complicating parsing.
+- A bare label on its own line is fragile if the model adds a preamble sentence.
+- "Label: X" / "Reasoning: Y" gives deterministic split points while staying human-readable.
+  Parsing: scan lines for one starting with "label:" and one with "reasoning:", split on
+  the first ":" and strip. If "Label:" is missing, fall back to scanning all words for
+  a valid label string.
 ```
 
 ---
@@ -102,8 +111,11 @@ What are the tradeoffs?]
 **Edge cases to handle in the prompt:**
 
 ```
-[blank — what if labeled_examples is empty? What if the description is very
-short? How does your prompt handle these?]
+- Empty labeled_examples: Omit the examples block entirely and add a note:
+  "No examples available — classify based on the task description alone."
+  The UI already warns users when no labels exist, so this is just a graceful fallback.
+- Very short description: No special handling needed — the model can classify
+  even a one-sentence description using the task instruction alone.
 ```
 
 ---
@@ -159,9 +171,16 @@ Extract the response text from:
 **Step 3 — Parse the response:**
 
 ```
-[blank — how do you extract the label and reasoning from the LLM's text output?
-What string operations or parsing logic do you need?
-This depends on the output format you chose in build_few_shot_prompt.]
+Iterate over response_text.splitlines(). For each line:
+  - If line.lower().startswith("label:"):
+      label = line.split(":", 1)[1].strip().lower()
+  - If line.lower().startswith("reasoning:"):
+      reasoning = line.split(":", 1)[1].strip()
+
+Fallback: if label is still "unknown" after the line scan, do a word-level scan
+of the full response text — check each word (stripped of ".,") against VALID_LABELS
+and take the first match. This handles cases where the model adds a preamble or
+omits the "Label:" prefix entirely.
 ```
 
 ---
@@ -169,8 +188,10 @@ This depends on the output format you chose in build_few_shot_prompt.]
 **Step 4 — Validate the label:**
 
 ```
-[blank — what do you do if the LLM returns a label that isn't in VALID_LABELS?
-What should label be set to?]
+After parsing, check: if label not in VALID_LABELS, set label = "unknown".
+This covers cases where the model returns a capitalised variant ("Solo"), a
+misspelling, or something entirely unexpected. The .lower() in the parse step
+handles capitalisation, so "unknown" is only needed for genuinely invalid values.
 ```
 
 ---
@@ -178,9 +199,16 @@ What should label be set to?]
 **Step 5 — Handle errors gracefully:**
 
 ```
-[blank — what could go wrong? (Network error? Unparseable response?)
-What should the function return if something fails?
-Hint: the evaluation loop runs 20 calls — one bad response shouldn't crash everything.]
+Wrap the entire function body in try/except Exception as e and return:
+  {"label": "unknown", "reasoning": f"Classification failed: {e}"}
+
+Possible failures:
+- Network/API error (Groq outage, rate limit, bad API key)
+- response.choices is empty or content is None
+- Completely unparseable response (no "Label:" line and no valid label word found)
+
+Returning {"label": "unknown", ...} on any failure keeps the evaluation loop
+running through all 20 episodes even if one call goes wrong.
 ```
 
 ---
@@ -213,24 +241,36 @@ any labels you're unsure about. Annotation quality is part of the lab.
 **Test: what does the raw LLM response look like for one episode?**
 
 ```
-Episode tested: [title]
-Raw response text: [paste it here]
+Episode tested: "The Case for Four-Day Workweeks" (solo example from app.py)
+Expected raw response:
+  Label: solo
+  Reasoning: The host speaks in first person throughout and explicitly states
+  they want to share their own view — there are no guests and no Q&A structure.
 ```
 
 **How did you parse the label out of the response?**
 
 ```
-[describe the string operations — strip, split, lower, etc.]
+Iterate over response.splitlines(). Find the line that starts with "label:"
+(case-insensitive), then: line.split(":", 1)[1].strip().lower()
+Similarly for "reasoning:". If the "Label:" line is missing entirely, fall back
+to scanning each whitespace-separated word (stripped of ".,") against VALID_LABELS.
 ```
 
 **Did any episodes return `"unknown"`? If so, why?**
 
 ```
-[yes / no — if yes, what did the raw response look like?]
+Unlikely with llama-3.3-70b-versatile given an explicit format instruction.
+Would occur if the model ignores the format and responds in prose — e.g.,
+"This appears to be a solo episode." — and no valid label word appears in
+the fallback word scan. The try/except also catches API-level failures the
+same way.
 ```
 
 **One thing about the output format that surprised you:**
 
 ```
-[your answer here]
+The model may occasionally add a brief preamble sentence before the "Label:" line
+(e.g., "Based on the description provided:"). The line-scan approach handles this
+naturally because it searches all lines rather than assuming the label is first.
 ```

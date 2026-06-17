@@ -41,42 +41,71 @@ def load_labeled_examples() -> list[dict]:
 def build_few_shot_prompt(labeled_examples: list[dict], description: str) -> str:
     """
     Build a few-shot classification prompt using the student's labeled training examples.
-
-    TODO — Milestone 2:
-
-    Your prompt needs to:
-      1. Describe the task and the four valid labels
-      2. Show the labeled training examples so the LLM can learn the pattern
-      3. Present the new description and ask for a classification
-
-    The LLM should return a single label from VALID_LABELS (exactly as written)
-    plus a brief explanation of its reasoning. Think carefully about the output
-    format you request — you'll need to parse it in classify_episode().
-
-    Before writing code, complete specs/classifier-spec.md.
     """
-    return ""
+    task = (
+        "You are classifying podcast episodes by their structural format.\n"
+        "Assign exactly one of these four labels:\n"
+        "  interview - host + guest(s); Q&A structure; guest drives content\n"
+        "  solo      - one host, no guests; shares their own thoughts or experience\n"
+        "  panel     - 3+ speakers as equals; no clear host-guest dynamic\n"
+        "  narrative - story assembled from external sources; documentary arc\n\n"
+    )
+
+    if labeled_examples:
+        examples_block = "Examples:\n\n"
+        for ex in labeled_examples:
+            examples_block += (
+                f"Title: {ex['title']}\n"
+                f"Description: {ex['description']}\n"
+                f"Label: {ex['label']}\n\n"
+            )
+    else:
+        examples_block = "No examples available — classify based on the task description alone.\n\n"
+
+    classify_block = (
+        "Now classify this episode:\n\n"
+        f"Description: {description}\n\n"
+        "Respond using EXACTLY this format:\n"
+        "Label: <one of: interview, solo, panel, narrative>\n"
+        "Reasoning: <one or two sentences explaining your choice>\n"
+    )
+
+    return task + examples_block + classify_block
 
 
 def classify_episode(description: str, labeled_examples: list[dict]) -> dict:
     """
     Classify a single podcast episode description using the few-shot LLM classifier.
-
-    TODO — Milestone 2 (complete after build_few_shot_prompt):
-
-    Steps:
-      1. Call build_few_shot_prompt() to construct the prompt
-      2. Send it to the LLM via _client.chat.completions.create()
-      3. Parse the response to extract a label and reasoning
-      4. Validate the label — if it's not in VALID_LABELS, set it to "unknown"
-      5. Return a dict with "label" and "reasoning" keys
-
-    Handle the case where the LLM returns something unparseable gracefully —
-    don't let a bad response crash the whole evaluation.
-
-    Before writing code, complete specs/classifier-spec.md.
     """
-    return {
-        "label": None,
-        "reasoning": "Classifier not yet implemented. Complete Milestone 2.",
-    }
+    try:
+        prompt = build_few_shot_prompt(labeled_examples, description)
+        response = _client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=200,
+        )
+        text = response.choices[0].message.content or ""
+
+        label, reasoning = "unknown", ""
+        for line in text.splitlines():
+            if line.lower().startswith("label:"):
+                label = line.split(":", 1)[1].strip().lower()
+            elif line.lower().startswith("reasoning:"):
+                reasoning = line.split(":", 1)[1].strip()
+
+        # fallback: scan words for a valid label if structured format was ignored
+        if label not in VALID_LABELS:
+            for word in text.lower().split():
+                if word.strip(".,") in VALID_LABELS:
+                    label = word.strip(".,")
+                    break
+            else:
+                label = "unknown"
+
+        if label not in VALID_LABELS:
+            label = "unknown"
+
+        return {"label": label, "reasoning": reasoning or text.strip()}
+
+    except Exception as e:
+        return {"label": "unknown", "reasoning": f"Classification failed: {e}"}
